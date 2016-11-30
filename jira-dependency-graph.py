@@ -137,12 +137,18 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
     return walk(start_issue_key, [])
 
 def visit(graph, issue_key, issue):
+    global done_count
+    global notdone_count
+
     if issue['fields']['status']['name'] in ['Closed', 'Resolved']:
+        done_count += 1
         color = "grey"
-    elif issue['fields']['status']['name'] in ['Needs Information']:
-        color = "red"
     else:
-        color = "dodgerblue"
+        notdone_count += 1
+        if issue['fields']['status']['name'] in ['Needs Information']:
+            color = "red"
+        else:
+            color = "dodgerblue"
 
     summary = issue['fields']['summary']
     summary = summary.replace('"', '\\"')
@@ -188,6 +194,8 @@ def parse_args():
 
     return parser.parse_args()
 
+done_count = 0
+notdone_count = 0
 
 def main():
     options = parse_args()
@@ -207,6 +215,9 @@ def main():
         print_graph(graph)
     else:
         create_graph_image(graph, options.image_file)
+
+    total_count = done_count + notdone_count
+    log("%d of %d issues completed (%.1f%%)" % (done_count, total_count, 100 * done_count / (total_count * 1.0)))
 
 if __name__ == '__main__':
     main()
