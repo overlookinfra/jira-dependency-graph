@@ -26,7 +26,7 @@ class JiraSearch(object):
     def __init__(self, url, auth):
         self.url = url + '/rest/api/latest'
         self.auth = auth
-        self.fields = ','.join(['key', 'issuetype', 'issuelinks', 'subtasks'])
+        self.fields = ','.join(['key', 'issuetype', 'issuelinks', 'subtasks', 'status', 'summary'])
 
     def get(self, uri, params={}):
         headers = {'Content-Type' : 'application/json'}
@@ -93,8 +93,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         else:
             node = '"%s"->"%s"[label="%s"%s]' % (issue_key, linked_issue_key, link_type, extra)
 
-
-        return linked_issue_key, node
+        return linked_issue, linked_issue_key, node
 
     # since the graph can be cyclic we need to prevent infinite recursion
     seen = []
@@ -103,6 +102,8 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         """ issue is the JSON representation of the issue """
         issue = jira.get_issue(issue_key)
         seen.append(issue_key)
+        visit(graph, issue_key, issue)
+
         children = []
         fields = issue['fields']
         if fields['issuetype']['name'] == 'Epic':
@@ -124,9 +125,10 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             for other_link in fields['issuelinks']:
                 result = process_link(issue_key, other_link)
                 if result is not None:
-                    children.append(result[0])
-                    if result[1] is not None:
-                        graph.append(result[1])
+                    children.append(result[1])
+                    if result[2] is not None: # add link
+                        graph.append(result[2])
+
         # now construct graph data for all subtasks and links of this issue
         for child in (x for x in children if x not in seen):
             walk(child, graph)
@@ -134,6 +136,18 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     return walk(start_issue_key, [])
 
+def visit(graph, issue_key, issue):
+    if issue['fields']['status']['name'] in ['Closed', 'Resolved']:
+        color = "grey"
+    elif issue['fields']['status']['name'] in ['Needs Information']:
+        color = "red"
+    else:
+        color = "dodgerblue"
+
+    summary = issue['fields']['summary']
+    summary = summary.replace('"', '\\"')
+    node = '"%s"[URL="https://tickets.puppetlabs.com/browse/%s",color="%s",tooltip="%s"]' % (issue_key, issue_key, color, summary)
+    graph.append(node)
 
 def create_graph_image(graph_data, image_file):
     """ Given a formatted blob of graphviz chart data[1], make the actual request to Google
@@ -156,7 +170,7 @@ def create_graph_image(graph_data, image_file):
 
 
 def print_graph(graph_data):
-    print('digraph{%s}' % ';'.join(graph_data))
+    print('digraph{node [style=filled];%s}' % ';'.join(graph_data))
 
 
 def parse_args():
