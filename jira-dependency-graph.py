@@ -102,7 +102,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         """ issue is the JSON representation of the issue """
         issue = jira.get_issue(issue_key)
         seen.append(issue_key)
-        visit(graph, issue_key, issue)
+        visit(graph, issue_key, issue, jira.url)
 
         children = []
         fields = issue['fields']
@@ -136,7 +136,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     return walk(start_issue_key, [])
 
-def visit(graph, issue_key, issue):
+def visit(graph, issue_key, issue, jira_url):
     global done_count
     global notdone_count
 
@@ -152,7 +152,7 @@ def visit(graph, issue_key, issue):
 
     summary = issue['fields']['summary']
     summary = summary.replace('"', '\\"')
-    node = '"%s"[URL="https://tickets.puppetlabs.com/browse/%s",color="%s",tooltip="%s"]' % (issue_key, issue_key, color, summary)
+    node = '"%s"[URL="%s/browse/%s",color="%s",tooltip="%s"]' % (issue_key, jira_url, issue_key, color, summary)
     graph.append(node)
 
 def create_graph_image(graph_data, image_file):
