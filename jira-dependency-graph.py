@@ -8,6 +8,9 @@ import sys
 
 import requests
 
+from carbon.client import UDPClient
+from carbon.client.extras import SimpleCollector
+
 # Using REST is pretty simple. The vast majority of this code is about the "other stuff": dealing with
 # command line options, formatting graphviz, calling Google Charts, etc. The actual JIRA REST-specific code
 # is only about 5 lines.
@@ -102,7 +105,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         """ issue is the JSON representation of the issue """
         issue = jira.get_issue(issue_key)
         seen.append(issue_key)
-        visit(graph, issue_key, issue)
+        visit(graph, issue_key, issue, jira.url)
 
         children = []
         fields = issue['fields']
@@ -136,7 +139,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     return walk(start_issue_key, [])
 
-def visit(graph, issue_key, issue):
+def visit(graph, issue_key, issue, jira_url):
     global done_count
     global notdone_count
 
@@ -152,7 +155,7 @@ def visit(graph, issue_key, issue):
 
     summary = issue['fields']['summary']
     summary = summary.replace('"', '\\"')
-    node = '"%s"[URL="https://tickets.puppetlabs.com/browse/%s",color="%s",tooltip="%s"]' % (issue_key, issue_key, color, summary)
+    node = '"%s"[URL="%s/browse/%s",color="%s",tooltip="%s"]' % (issue_key, jira_url, issue_key, color, summary)
     graph.append(node)
 
 def create_graph_image(graph_data, image_file):
@@ -190,6 +193,8 @@ def parse_args():
     parser.add_argument('-x', '--exclude-link', dest='excludes', default=[], action='append', help='Exclude link type(s)')
     parser.add_argument('-s', '--show-directions', dest='show_directions', default=['inward', 'outward'], help='which directions to show (inward,outward)')
     parser.add_argument('-d', '--directions', dest='directions', default=['inward', 'outward'], help='which directions to walk (inward,outward)')
+    parser.add_argument('-g', '--graphite-hosts', dest='graphite_hosts', default=None, help='report issue completion metrics to specified graphite hosts (host:port, can support multiple comma-separated hosts)')
+    parser.add_argument('-n', '--graphite-namespace-prefix', dest='graphite_namespace_prefix', default="jira", help='namespace prefix to use for graphite metrics')
     parser.add_argument('issue', nargs='?', help='The issue key (e.g. JRADEV-1107, JRADEV-1391)')
 
     return parser.parse_args()
@@ -218,6 +223,25 @@ def main():
 
     total_count = done_count + notdone_count
     log("%d of %d issues completed (%.1f%%)" % (done_count, total_count, 100 * done_count / (total_count * 1.0)))
+
+    graphite_hosts = options.graphite_hosts
+
+    if graphite_hosts is not None:
+        # Will be send to multiple destinations
+        graphite_namespace = "%s.%s" % (options.graphite_namespace_prefix, options.issue.lower())
+        client = UDPClient(graphite_hosts, graphite_namespace)
+
+        log("meow")
+        with SimpleCollector("resolved", client) as collector:
+            collector.add(done_count)
+
+        with SimpleCollector("unresolved", client) as collector:
+            collector.add(notdone_count)
+
+        with SimpleCollector("total", client) as collector:
+            collector.add(total_count)
+
+        client.send()
 
 if __name__ == '__main__':
     main()
