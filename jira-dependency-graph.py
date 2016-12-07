@@ -27,13 +27,13 @@ class JiraSearch(object):
         to pass a bunch of parameters all over the place all the time. """
 
     def __init__(self, url, auth):
-        self.url = url + '/rest/api/latest'
+        self.url = url
         self.auth = auth
         self.fields = ','.join(['key', 'issuetype', 'issuelinks', 'subtasks', 'status', 'summary'])
 
     def get(self, uri, params={}):
         headers = {'Content-Type' : 'application/json'}
-        url = self.url + uri
+        url = self.url + '/rest/api/latest/' + uri
 
         if isinstance(self.auth, str):
             return requests.get(url, params=params, cookies={'JSESSIONID': self.auth}, headers=headers)
@@ -178,8 +178,9 @@ def create_graph_image(graph_data, image_file):
     return image_file
 
 
-def submit_metric_to_graphite(host, port, values):
-    sock = socket.Socket()
+def submit_metrics_to_graphite(host, port, values=[]):
+    sock = socket.socket(socket.AF_INET,
+                         socket.SOCK_DGRAM)
     sock.connect((host, port))
     timestamp = int(time.time())
     for path, value in values:
@@ -235,7 +236,7 @@ def main():
     log("%d of %d issues completed (%.1f%%)" % (done_count, total_count, 100 * done_count / (total_count * 1.0)))
 
     graphite_host = options.graphite_host
-    graphite_port = options.graphite_port
+    graphite_port = int(options.graphite_port)
 
     if graphite_host is not None:
         graphite_namespace = "%s.%s" % (options.graphite_namespace_prefix, options.issue.lower())
@@ -243,10 +244,10 @@ def main():
             (lambda x: ("%s.%s.%s" % (options.graphite_namespace_prefix,
                                       options.issue.lower(),
                                       x[0]),
-                        x[1],))),
-                               [("resolved", done_count),
-                                ("unresolved", notdone_count),
-                                ("total", total_count),])
+                        x[1],)),
+            [("done", done_count),
+             ("not-done", notdone_count),
+             ("total", total_count),]))
         submit_metrics_to_graphite(graphite_host, graphite_port, graphite_values)
 
 if __name__ == '__main__':
