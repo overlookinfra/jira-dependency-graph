@@ -4,12 +4,12 @@ from __future__ import print_function
 
 import argparse
 import json
+import socket
 import sys
+import time
 
 import requests
 
-from carbon.client import UDPClient
-from carbon.client.extras import SimpleCollector
 
 # Using REST is pretty simple. The vast majority of this code is about the "other stuff": dealing with
 # command line options, formatting graphviz, calling Google Charts, etc. The actual JIRA REST-specific code
@@ -27,13 +27,13 @@ class JiraSearch(object):
         to pass a bunch of parameters all over the place all the time. """
 
     def __init__(self, url, auth):
-        self.url = url + '/rest/api/latest'
+        self.url = url
         self.auth = auth
         self.fields = ','.join(['key', 'issuetype', 'issuelinks', 'subtasks', 'status', 'summary'])
 
     def get(self, uri, params={}):
         headers = {'Content-Type' : 'application/json'}
-        url = self.url + uri
+        url = self.url + '/rest/api/latest/' + uri
 
         if isinstance(self.auth, str):
             return requests.get(url, params=params, cookies={'JSESSIONID': self.auth}, headers=headers)
@@ -178,6 +178,16 @@ def create_graph_image(graph_data, image_file):
     return image_file
 
 
+def submit_metrics_to_graphite(host, port, values=[]):
+    sock = socket.socket(socket.AF_INET,
+                         socket.SOCK_DGRAM)
+    sock.connect((host, port))
+    timestamp = int(time.time())
+    for path, value in values:
+        sock.send("%s %f %d\n" % (path, value, timestamp))
+    sock.close()
+
+
 def print_graph(graph_data):
     print('digraph{node [style=filled];%s}' % ';'.join(graph_data))
 
@@ -193,7 +203,8 @@ def parse_args():
     parser.add_argument('-x', '--exclude-link', dest='excludes', default=[], action='append', help='Exclude link type(s)')
     parser.add_argument('-s', '--show-directions', dest='show_directions', default=['inward', 'outward'], help='which directions to show (inward,outward)')
     parser.add_argument('-d', '--directions', dest='directions', default=['inward', 'outward'], help='which directions to walk (inward,outward)')
-    parser.add_argument('-g', '--graphite-hosts', dest='graphite_hosts', default=None, help='report issue completion metrics to specified graphite hosts (host:port, can support multiple comma-separated hosts)')
+    parser.add_argument('-g', '--graphite-host', dest='graphite_host', default=None, help='report issue completion metrics to specified graphite hosts (host:port, can support multiple comma-separated hosts)')
+    parser.add_argument('-P', '--graphite-port', dest='graphite_port', default=2003, help='report issue completion metrics to specified graphite host')
     parser.add_argument('-n', '--graphite-namespace-prefix', dest='graphite_namespace_prefix', default="jira", help='namespace prefix to use for graphite metrics')
     parser.add_argument('issue', nargs='?', help='The issue key (e.g. JRADEV-1107, JRADEV-1391)')
 
@@ -224,24 +235,20 @@ def main():
     total_count = done_count + notdone_count
     log("%d of %d issues completed (%.1f%%)" % (done_count, total_count, 100 * done_count / (total_count * 1.0)))
 
-    graphite_hosts = options.graphite_hosts
+    graphite_host = options.graphite_host
+    graphite_port = int(options.graphite_port)
 
-    if graphite_hosts is not None:
-        # Will be send to multiple destinations
+    if graphite_host is not None:
         graphite_namespace = "%s.%s" % (options.graphite_namespace_prefix, options.issue.lower())
-        client = UDPClient(graphite_hosts, graphite_namespace)
-
-        log("meow")
-        with SimpleCollector("resolved", client) as collector:
-            collector.add(done_count)
-
-        with SimpleCollector("unresolved", client) as collector:
-            collector.add(notdone_count)
-
-        with SimpleCollector("total", client) as collector:
-            collector.add(total_count)
-
-        client.send()
+        graphite_values = list(map(
+            (lambda x: ("%s.%s.%s" % (options.graphite_namespace_prefix,
+                                      options.issue.lower(),
+                                      x[0]),
+                        x[1],)),
+            [("done", done_count),
+             ("not-done", notdone_count),
+             ("total", total_count),]))
+        submit_metrics_to_graphite(graphite_host, graphite_port, graphite_values)
 
 if __name__ == '__main__':
     main()
