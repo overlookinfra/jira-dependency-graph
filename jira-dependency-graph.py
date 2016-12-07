@@ -7,6 +7,7 @@ import json
 import socket
 import sys
 import time
+import urlparse
 
 import requests
 
@@ -33,7 +34,7 @@ class JiraSearch(object):
 
     def get(self, uri, params={}):
         headers = {'Content-Type' : 'application/json'}
-        url = self.url + '/rest/api/latest/' + uri
+        url = urlparse.urljoin(self.url, '/rest/api/latest') + uri
 
         if isinstance(self.auth, str):
             return requests.get(url, params=params, cookies={'JSESSIONID': self.auth}, headers=headers)
