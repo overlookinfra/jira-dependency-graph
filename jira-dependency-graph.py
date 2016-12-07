@@ -181,7 +181,7 @@ def create_graph_image(graph_data, image_file):
 
 def submit_metrics_to_graphite(host, port, values=[]):
     sock = socket.socket(socket.AF_INET,
-                         socket.SOCK_DGRAM)
+                         socket.SOCK_STREAM)
     sock.connect((host, port))
     timestamp = int(time.time())
     for path, value in values:
